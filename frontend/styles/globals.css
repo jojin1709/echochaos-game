@@ -1,0 +1,70 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --font-display: "Baloo 2", system-ui, sans-serif;
+  --font-body: "Nunito Sans", system-ui, sans-serif;
+}
+
+html, body {
+  height: 100%;
+}
+
+body {
+  background: radial-gradient(120% 120% at 50% -10%, #16307A 0%, #0B1B4D 45%, #060F30 100%);
+  color: #FFF6E9;
+  font-family: var(--font-body);
+  overflow-x: hidden;
+}
+
+.stage-surface {
+  background: linear-gradient(180deg, #132868 0%, #0F2158 100%);
+  border: 2px solid #24397D;
+}
+
+.btn-chunky {
+  border-radius: 999px;
+  font-family: var(--font-display);
+  font-weight: 700;
+  transition: transform 0.08s ease, box-shadow 0.08s ease;
+}
+.btn-chunky:active {
+  transform: translateY(4px);
+  box-shadow: none !important;
+}
+.btn-chunky:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.btn-chunky:disabled:active {
+  transform: none;
+}
+
+.spotlight {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(60% 45% at 50% 20%, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0) 70%);
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+.focus-ring:focus-visible {
+  outline: 3px solid #FFC93C;
+  outline-offset: 2px;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: #24397D;
+  border-radius: 999px;
+}

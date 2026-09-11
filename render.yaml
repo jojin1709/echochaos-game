@@ -1,0 +1,20 @@
+# Render Blueprint — deploys the EchoChaos Socket.IO server.
+# See https://render.com/docs/blueprint-spec for the full schema.
+services:
+  - type: web
+    name: echochaos-server
+    runtime: node
+    rootDir: server
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: PORT
+        value: 4000
+      - key: CORS_ORIGIN
+        sync: false # set this to your deployed Vercel URL, e.g. https://echochaos.vercel.app
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
