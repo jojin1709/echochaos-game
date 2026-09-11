@@ -53,12 +53,12 @@ export function useGameSocket() {
     const onConnect = () => {
       setConnected(true);
       const stored = readStoredSession();
-      if (stored && phase !== "lobby") {
+      if (stored) {
         socket.emit("rejoin_room", stored, (res) => {
           if (res.ok) {
             setRoom(res.room);
             setPlayerId(stored.playerId);
-            setPhase(phaseForRoomState(res.room.state));
+            setPhase((curr) => (curr === "landing" || curr === "join" ? phaseForRoomState(res.room.state) : curr));
           } else {
             clearStoredSession();
           }
@@ -160,43 +160,43 @@ export function useGameSocket() {
 
   const updateSettings = useCallback(
     (settings: Partial<GameSettings>) => {
-      if (room) socketRef.current.emit("update_settings", { code: room.code, settings });
+      if (room) socketRef.current.emit("update_settings", { code: room.code, settings, playerId });
     },
-    [room]
+    [room, playerId]
   );
 
   const setReady = useCallback(
     (ready: boolean) => {
-      if (room) socketRef.current.emit("player_ready", { code: room.code, ready });
+      if (room) socketRef.current.emit("player_ready", { code: room.code, ready, playerId });
     },
-    [room]
+    [room, playerId]
   );
 
   const startGame = useCallback(() => {
-    if (room) socketRef.current.emit("start_game", { code: room.code });
-  }, [room]);
+    if (room) socketRef.current.emit("start_game", { code: room.code, playerId });
+  }, [room, playerId]);
 
   const submitRecording = useCallback(
     (audioBase64: string, mimeType: string, clientDurationMs: number) => {
       if (!room) return;
       setPhase("processing");
       setSilentRetry(null);
-      socketRef.current.emit("recording_submitted", { code: room.code, audioBase64, mimeType, clientDurationMs });
+      socketRef.current.emit("recording_submitted", { code: room.code, audioBase64, mimeType, clientDurationMs, playerId });
     },
-    [room]
+    [room, playerId]
   );
 
   const nextRound = useCallback(() => {
-    if (room) socketRef.current.emit("next_round", { code: room.code });
-  }, [room]);
+    if (room) socketRef.current.emit("next_round", { code: room.code, playerId });
+  }, [room, playerId]);
 
   const playAgain = useCallback(() => {
     if (room) {
-      socketRef.current.emit("play_again", { code: room.code });
+      socketRef.current.emit("play_again", { code: room.code, playerId });
       setFinalResults(null);
       setPhase("lobby");
     }
-  }, [room]);
+  }, [room, playerId]);
 
   const goTo = useCallback((p: LocalPhase) => setPhase(p), []);
   const clearError = useCallback(() => setErrorMessage(null), []);

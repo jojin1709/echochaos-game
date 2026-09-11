@@ -234,10 +234,38 @@ export class RoomManager {
     return connected.every((p) => room.pendingSubmissions.has(p.id));
   }
 
+  autoFillMissingSubmissions(code: string): void {
+    const room = this.getRoom(code);
+    if (!room) return;
+    const connected = room.state.players.filter((p) => p.connected);
+    for (const player of connected) {
+      if (!room.pendingSubmissions.has(player.id)) {
+        room.pendingSubmissions.set(player.id, {
+          playerId: player.id,
+          nickname: player.nickname,
+          character: player.character,
+          score: 15,
+          breakdown: {
+            pitchSimilarity: 15,
+            spectralSimilarity: 15,
+            timingSimilarity: 15,
+            energySimilarity: 15,
+            durationSimilarity: 15,
+            total: 15,
+          },
+          pointsAwarded: 15,
+          recordingUrl: null,
+        });
+      }
+    }
+  }
+
   /** Finalizes round: applies bonuses/event multipliers, updates cumulative scores, returns sorted results. */
   finalizeRound(code: string): RoundResultEntry[] {
     const room = this.getRoom(code);
     if (!room) return [];
+    this.autoFillMissingSubmissions(code);
+
 
     const entries = Array.from(room.pendingSubmissions.values());
     const multiplier = room.state.activeEvent === "DOUBLE_POINTS" ? 2 : 1;

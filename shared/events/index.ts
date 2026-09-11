@@ -34,11 +34,11 @@ export interface ClientToServerEvents {
     ack: (res: { ok: true; room: RoomState } | { ok: false; error: string }) => void
   ) => void;
 
-  update_settings: (payload: { code: string; settings: Partial<GameSettings> }) => void;
+  update_settings: (payload: { code: string; settings: Partial<GameSettings>; playerId?: string }) => void;
 
-  player_ready: (payload: { code: string; ready: boolean }) => void;
+  player_ready: (payload: { code: string; ready: boolean; playerId?: string }) => void;
 
-  start_game: (payload: { code: string }) => void;
+  start_game: (payload: { code: string; playerId?: string }) => void;
 
   recording_submitted: (payload: {
     code: string;
@@ -46,11 +46,12 @@ export interface ClientToServerEvents {
     audioBase64: string;
     mimeType: string;
     clientDurationMs: number;
+    playerId?: string;
   }) => void;
 
-  next_round: (payload: { code: string }) => void;
+  next_round: (payload: { code: string; playerId?: string }) => void;
 
-  play_again: (payload: { code: string }) => void;
+  play_again: (payload: { code: string; playerId?: string }) => void;
 }
 
 // ---- Server -> Client -------------------------------------------------

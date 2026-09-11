@@ -56,10 +56,11 @@ export function decodeToPcm(inputBuffer: Buffer): Promise<{ samples: Float32Arra
 }
 
 /** Quick silence/empty check before spending CPU on full feature extraction. */
-export function isEffectivelySilent(samples: Float32Array, threshold = 0.01): boolean {
+export function isEffectivelySilent(samples: Float32Array, threshold = 0.0005): boolean {
   if (samples.length === 0) return true;
   let sum = 0;
   for (let i = 0; i < samples.length; i++) sum += samples[i] * samples[i];
   const rms = Math.sqrt(sum / samples.length);
   return rms < threshold;
 }
+

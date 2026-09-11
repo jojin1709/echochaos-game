@@ -10,7 +10,7 @@ import type {
   ServerToClientEvents,
   SocketData,
 } from "../../../shared/events";
-import type { RoundResultEntry } from "../../../shared/types";
+import type { RoundResultEntry, ScoreBreakdown } from "../../../shared/types";
 import { RoomManager } from "../rooms/RoomManager";
 import { decodeToPcm, isEffectivelySilent } from "../audio/decode";
 import { extractFeatures } from "../audio/features";
@@ -65,24 +65,64 @@ export function registerSocketHandlers(io: TypedServer, roomManager: RoomManager
       socket.to(code).emit("room_updated", room);
     });
 
-    socket.on("update_settings", ({ code, settings }) => {
-      const room = roomManager.updateSettings(code, socket.data.playerId, settings);
+    const roundTimers = new Map<string, NodeJS.Timeout>();
+
+    function clearRoundTimer(roomCode: string) {
+      const existing = roundTimers.get(roomCode.toUpperCase());
+      if (existing) {
+        clearTimeout(existing);
+        roundTimers.delete(roomCode.toUpperCase());
+      }
+    }
+
+    function scheduleRoundTimer(roomCode: string, seconds: number) {
+      clearRoundTimer(roomCode);
+      const code = roomCode.toUpperCase();
+      // Allow extra buffer for audio upload and decoding
+      const timeoutMs = Math.max(10, seconds + 7) * 1000;
+      const timer = setTimeout(() => {
+        const room = roomManager.getRoom(code);
+        if (!room || room.state.state === "RESULTS" || room.state.state === "LOBBY" || room.state.state === "FINISHED") {
+          return;
+        }
+        const challenge = room.state.currentChallenge;
+        if (!challenge) return;
+        const results = roomManager.finalizeRound(code);
+        roomManager.setState(code, "RESULTS");
+        io.to(code).emit("round_results", { results, challenge });
+        io.to(code).emit("room_updated", roomManager.getPublicState(code)!);
+      }, timeoutMs);
+      roundTimers.set(code, timer);
+    }
+
+    socket.on("update_settings", ({ code, settings, playerId }) => {
+      const pId = socket.data.playerId || playerId;
+      if (!pId) return;
+      if (!socket.data.playerId) socket.data.playerId = pId;
+      const room = roomManager.updateSettings(code, pId, settings);
       if (room) io.to(code).emit("room_updated", room);
     });
 
-    socket.on("player_ready", ({ code, ready }) => {
-      const room = roomManager.setReady(code, socket.data.playerId, ready);
+    socket.on("player_ready", ({ code, ready, playerId }) => {
+      const pId = socket.data.playerId || playerId;
+      if (!pId) return;
+      if (!socket.data.playerId) socket.data.playerId = pId;
+      const room = roomManager.setReady(code, pId, ready);
       if (room) io.to(code).emit("room_updated", room);
     });
 
-    socket.on("start_game", ({ code }) => {
-      const check = roomManager.canStart(code, socket.data.playerId);
+    socket.on("start_game", ({ code, playerId }) => {
+      const pId = socket.data.playerId || playerId;
+      if (!pId) return;
+      if (!socket.data.playerId) socket.data.playerId = pId;
+      const check = roomManager.canStart(code, pId);
       if (!check.ok) {
         socket.emit("error_message", { code: check.error, message: humanizeError(check.error) });
         return;
       }
       const room = roomManager.startGame(code);
       if (!room || !room.currentChallenge) return;
+      scheduleRoundTimer(code, room.settings.roundTimerSeconds);
       io.to(code).emit("room_updated", room);
       io.to(code).emit("round_started", {
         challenge: room.currentChallenge,
@@ -97,8 +137,12 @@ export function registerSocketHandlers(io: TypedServer, roomManager: RoomManager
       }
     });
 
-    socket.on("recording_submitted", async ({ code, audioBase64, mimeType, clientDurationMs }) => {
+    socket.on("recording_submitted", async ({ code, audioBase64, mimeType, clientDurationMs, playerId }) => {
       try {
+        const pId = socket.data.playerId || playerId;
+        if (!pId) return;
+        if (!socket.data.playerId) socket.data.playerId = pId;
+
         if (clientDurationMs > MAX_RECORDING_MS) {
           socket.emit("error_message", { code: "RECORDING_TOO_LONG", message: "That recording is too long." });
           return;
@@ -110,32 +154,30 @@ export function registerSocketHandlers(io: TypedServer, roomManager: RoomManager
         }
 
         const room = roomManager.getRoom(code);
-        const player = room?.state.players.find((p) => p.id === socket.data.playerId);
+        const player = room?.state.players.find((p) => p.id === pId);
         const challenge = room?.state.currentChallenge;
         if (!room || !player || !challenge) return;
 
-        io.to(code).emit("processing_started");
-        roomManager.setState(code, "PROCESSING");
+        socket.emit("processing_started");
 
         const { samples: playerSamples, sampleRate } = await decodeToPcm(buffer);
 
+        let breakdown: ScoreBreakdown;
         if (isEffectivelySilent(playerSamples)) {
-          socket.emit("error_message", { code: "SILENT_RECORDING", message: "We couldn't hear you! Try again." });
-          roomManager.setState(code, "RECORDING");
-          return;
+          // Graceful fallback for soft or low-gain microphones so the party never freezes
+          breakdown = {
+            pitchSimilarity: 15,
+            spectralSimilarity: 15,
+            timingSimilarity: 15,
+            energySimilarity: 15,
+            durationSimilarity: 15,
+            total: 15,
+          };
+        } else {
+          const targetFeatures = await getOrBuildTargetFeatures(challenge.id, challenge.duration, sampleRate);
+          const playerFeatures = extractFeatures(playerSamples, sampleRate);
+          breakdown = await scoringProvider.score(targetFeatures, playerFeatures);
         }
-
-        // Target challenge audio is decoded once and could be cached; for a
-        // freshly-seeded placeholder catalog we synthesize a comparable
-        // feature profile from the challenge's declared duration/tags so the
-        // scoring pipeline is exercised end-to-end even before real licensed
-        // clips are dropped into /public/challenges. Replace this block with
-        // `decodeToPcm(fs.readFileSync(challengeAudioPath))` once real audio
-        // assets are added — see README "Audio Assets".
-        const targetFeatures = await getOrBuildTargetFeatures(challenge.id, challenge.duration, sampleRate);
-        const playerFeatures = extractFeatures(playerSamples, sampleRate);
-
-        const breakdown = await scoringProvider.score(targetFeatures, playerFeatures);
 
         const entry: RoundResultEntry = {
           playerId: player.id,
@@ -143,13 +185,14 @@ export function registerSocketHandlers(io: TypedServer, roomManager: RoomManager
           character: player.character,
           score: breakdown.total,
           breakdown,
-          pointsAwarded: breakdown.total, // finalized (bonuses applied) in finalizeRound
-          recordingUrl: null, // recordings are not persisted — ephemeral by design
+          pointsAwarded: breakdown.total,
+          recordingUrl: null,
         };
         roomManager.recordSubmission(code, entry);
         io.to(code).emit("player_score", { playerId: player.id, score: breakdown.total });
 
         if (roomManager.allSubmitted(code) || room.state.activeEvent === "ONE_SHOT") {
+          clearRoundTimer(code);
           const results = roomManager.finalizeRound(code);
           roomManager.setState(code, "RESULTS");
           io.to(code).emit("round_results", { results, challenge });
@@ -162,6 +205,7 @@ export function registerSocketHandlers(io: TypedServer, roomManager: RoomManager
     });
 
     socket.on("next_round", ({ code }) => {
+      clearRoundTimer(code);
       const room = roomManager.advanceToNextRound(code);
       if (!room) return;
       if (room.state === "FINISHED") {
@@ -170,6 +214,7 @@ export function registerSocketHandlers(io: TypedServer, roomManager: RoomManager
         if (final) io.to(code).emit("game_finished", final);
         return;
       }
+      scheduleRoundTimer(code, room.settings.roundTimerSeconds);
       io.to(code).emit("room_updated", room);
       if (room.currentChallenge) {
         io.to(code).emit("round_started", {
